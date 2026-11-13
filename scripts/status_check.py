@@ -71,7 +71,11 @@ def load_rows(path, sheet=None):
         if len(texts) >= 2 and any(any(w in t for w in SITE_WORDS + STATUS_WORDS) for t in texts):
             best = i; break
     headers = [str(c).strip() if c is not None else "" for c in data[best]] if data else []
-    rows = [list(r) + [None] * (len(headers) - len(r)) for r in data[best + 1:] if any(c not in (None, "") for c in r)]
+    rows, rownums = [], []
+    for k, r in enumerate(data[best + 1:], start=best + 2):
+        if any(c not in (None, "") for c in r):
+            rows.append(list(r) + [None] * (len(headers) - len(r))); rownums.append(k)
+    load_rows.rownums = rownums
     return name, best, headers, rows
 
 
@@ -165,6 +169,57 @@ def check_site(url):
     return last
 
 
+def fill_in_place(a, sheet, headers, rows, si, ti, stamp):
+    """Writes results into the owner's own columns, in a copy of their workbook (all tabs and formatting kept)."""
+    def col(name):
+        for i, h in enumerate(headers):
+            if norm(h).startswith(norm(name)): return i
+        raise SystemExit(f'Column "{name}" not found.')
+    fi = col(a.fill_col); ci = col(a.comment_col) if a.comment_col else None
+    wb = load_workbook(a.file); ws = wb[sheet]
+    word = {"Up": "UP", "Down": "DOWN", "Problem": "ERROR"}
+    today = datetime.now().strftime("%d/%m/%Y")
+    if ci is not None:
+        hdr_row = load_rows.rownums[0] - 1
+        ws.cell(row=hdr_row, column=ci + 1).value = re.sub(r"\s*\d{1,2}/\d{1,2}/\d{4}\s*$", "", str(headers[ci])).rstrip() + "  " + today
+    counts = {}
+    for (r, res), rn in zip(rows, load_rows.rownums):
+        k = res["result"]; counts[k] = counts.get(k, 0) + 1
+        cell = ws.cell(row=rn, column=fi + 1)
+        if k in word: cell.value = word[k]
+        elif k == "Not checked": cell.value = a.skip_value
+        # "Couldn't check", "Unknown status", "No website": leave the owner's value as it is, explain in the comment.
+        if k in FILL: cell.fill = PatternFill("solid", fgColor=FILL[k])
+        if ci is not None:
+            note = {"Up": "", "Not checked": ""}.get(k, res.get("details", ""))
+            if k == "Couldn't check": note = "Couldn't check automatically (bot protection). Please check in a browser."
+            if k == "Unknown status": note = res.get("details", "")
+            if k == "No website": note = "No URL in this row"
+            if res.get("details") and k == "Up": note = res["details"]  # e.g. slow to load
+            ws.cell(row=rn, column=ci + 1).value = note or None
+    # Summary tab at the front.
+    if "Check summary" in wb.sheetnames: del wb["Check summary"]
+    sm = wb.create_sheet("Check summary", 0)
+    sm.append([f"Daily website check, {today}"]); sm["A1"].font = Font(bold=True, size=14)
+    sm.append([f"Checked {stamp}. Tab: {sheet}. Statuses checked: {', '.join(json.load(open(a.rules))['check'])}."]); sm.append([])
+    for k in ["Up", "Down", "Problem", "Couldn't check", "Unknown status", "Not checked", "No website"]:
+        if counts.get(k): sm.append([{"Problem": "Error (loads but broken)", "Not checked": "Design/dev (not checked)"}.get(k, k), counts[k]]); sm[sm.max_row][0].fill = PatternFill("solid", fgColor=FILL[k])
+    sm.append([]); sm.append(["Needs attention", headers[ti] if ti is not None else "Status", "Result", "Details"])
+    for c in sm[sm.max_row]: c.font = Font(bold=True)
+    order = {"Down": 0, "Problem": 1, "Couldn't check": 2, "Unknown status": 3}
+    att = sorted([(r, res) for r, res in rows if res["result"] in order], key=lambda x: order[x[1]["result"]])
+    for r, res in att:
+        sm.append([str(r[si]), str(r[ti]) if ti is not None else "", {"Problem": "ERROR", "Down": "DOWN"}.get(res["result"], res["result"]), res.get("details", "")])
+        sm[sm.max_row][2].fill = PatternFill("solid", fgColor=FILL[res["result"]])
+    if not att: sm.append(["Nothing needs attention: every checked site is up."])
+    for c_, w in zip("ABCD", (44, 30, 16, 80)): sm.column_dimensions[c_].width = w
+    out = a.out or re.sub(r"\.(xlsx|xlsm)$", "", a.file, flags=re.I) + "-checked.xlsx"
+    wb.save(out)
+    print(f"\nSaved: {out}")
+    print("Totals: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
+    for r, res in att: print(f'  {res["result"].upper():15} {str(r[si]):45} [{str(r[ti]) if ti is not None else ""}] {res.get("details", "")}')
+
+
 FILL = {"Up": "D9F2E3", "Down": "F8D7DA", "Problem": "FFF0C2", "Couldn't check": "E7E9F2", "Not checked": "F2F2F2", "Unknown status": "E8DDF5", "No website": "F2F2F2"}
 
 
@@ -173,6 +228,9 @@ def main():
     ap.add_argument("file"); ap.add_argument("--sheet"); ap.add_argument("--site-col"); ap.add_argument("--status-col")
     ap.add_argument("--rules", default=os.path.join(os.path.dirname(__file__), "..", "reference", "status-rules.json"))
     ap.add_argument("--out"); ap.add_argument("--only-columns", action="store_true")
+    ap.add_argument("--fill-col", help='Write UP / DOWN / ERROR into this existing column (e.g. "WEBSITE CHECK STATUS") in a copy of the sheet')
+    ap.add_argument("--comment-col", help="Write the reason into this existing column (e.g. \"COMMENTS FOR THE DAY\")")
+    ap.add_argument("--skip-value", default="DESIGN/DEV STAGE", help="Value written into --fill-col for rows whose status isn't checked")
     a = ap.parse_args()
     rules = json.load(open(a.rules))
     check_set = {norm(s) for s in rules["check"]}; skip_set = {norm(s) for s in rules["skip"]}
@@ -198,6 +256,8 @@ def main():
             rows[idx] = (rows[idx], dict(res, checked_url=url))
 
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    if a.fill_col:
+        return fill_in_place(a, sheet, headers, rows, si, ti, stamp)
     out = a.out or re.sub(r"\.(xlsx|xlsm|csv)$", "", a.file, flags=re.I) + f"-status-{datetime.now().strftime('%Y-%m-%d')}.xlsx"
     wb = Workbook(); ws = wb.active; ws.title = "Results"
     new_cols = ["Result", "Details", "HTTP code", "Final address", "Load time (s)", "Checked at"]

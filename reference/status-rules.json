@@ -6,7 +6,10 @@
     "work in progress",
     "in progress",
     "live wip",
-    "launched"
+    "launched",
+    "live settlement",
+    "live - not our url",
+    "bloodbank - keep on the list site has been taken down for now"
   ],
   "skip": [
     "in design",
@@ -22,6 +25,8 @@
     "on hold",
     "cancelled",
     "canceled",
-    "archived"
+    "archived",
+    "design/dev stage",
+    "in design/dev"
   ]
 }
