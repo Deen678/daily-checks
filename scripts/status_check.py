@@ -149,6 +149,8 @@ def check_site(url):
                 for sign, what in BROKEN_SIGNS:
                     if sign.lower() in body.lower():
                         return dict(base, result="Problem", details=f"Loads, but {what}")
+                if re.search(r"location(\.href)?\s*=\s*[\"']/lander", body, re.I):
+                    return dict(base, result="Problem", details="Redirects to a parked-domain page (/lander), so the real site isn't showing")
                 if re.search(r"/lander\b|/parking|sedoparking|parkingcrew|bodis\.com", final, re.I):
                     return dict(base, result="Problem", details="Redirects to a parked-domain page (" + final + ")")
                 if fhost.replace("www.", "") != host.replace("www.", ""):
