@@ -110,7 +110,9 @@ def pick_columns(headers, rows, rules, site_col=None, status_col=None):
 def to_url(v):
     s = str(v or "").strip().replace(" ", "")
     if not s or not DOMAIN_RE.match(s): return None
-    return s if s.startswith("http") else "https://" + s
+    s = re.sub(r"^https?://", "", s, flags=re.I)          # "HTTPS://SITE.COM" and "http://site.com" alike
+    host, _, path = s.partition("/")
+    return "https://" + host.lower() + ("/" + path if path else "/")
 
 
 def dns_problem(host):
@@ -147,9 +149,11 @@ def check_site(url):
                 for sign, what in BROKEN_SIGNS:
                     if sign.lower() in body.lower():
                         return dict(base, result="Problem", details=f"Loads, but {what}")
+                if re.search(r"/lander\b|/parking|sedoparking|parkingcrew|bodis\.com", final, re.I):
+                    return dict(base, result="Problem", details="Redirects to a parked-domain page (" + final + ")")
                 if fhost.replace("www.", "") != host.replace("www.", ""):
                     return dict(base, result="Problem", details=f"Redirects to a different site: {fhost}")
-                if body and len(re.sub(r"<[^>]+>|\s+", "", body)) < 200:
+                if body and len(re.sub(r"<[^>]+>|\s+", "", body)) < 200 and "<script" not in body.lower():
                     return dict(base, result="Problem", details="Loads, but the page is almost empty")
                 return dict(base, result="Up", details="" if secs < 8 else f"Slow to load ({secs}s)")
         except requests.exceptions.SSLError:
@@ -159,8 +163,15 @@ def check_site(url):
             except Exception:
                 last = dict(code=None, final="", secs=None, result="Down", details="Security certificate (https) error, and no answer on http")
         except requests.exceptions.ConnectionError:
-            why = dns_problem(host) or "The server didn't answer or refused the connection"
-            last = dict(code=None, final="", secs=None, result="Down", details=why)
+            why = dns_problem(host)
+            if not why:
+                try:
+                    r2 = requests.get("http://" + host + "/", headers={"User-Agent": UA}, timeout=20, allow_redirects=True)
+                    if r2.status_code < 400:
+                        return dict(code=r2.status_code, final=r2.url, secs=None, result="Problem", details="Only loads on plain http (the secure https version doesn't answer)")
+                except Exception:
+                    pass
+            last = dict(code=None, final="", secs=None, result="Down", details=why or "The server didn't answer or refused the connection")
         except requests.exceptions.Timeout:
             last = dict(code=None, final="", secs=None, result="Down", details="No answer within 25 seconds")
         except Exception as e:
