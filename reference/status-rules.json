@@ -1,0 +1,27 @@
+{
+  "_about": "Which site statuses the status checker checks. Edit these lists to change the rules; matching ignores capitals, spaces and punctuation. A status that isn't in either list is reported as 'Unknown status' and not checked, so nothing is missed silently.",
+  "check": [
+    "live",
+    "wip",
+    "work in progress",
+    "in progress",
+    "live wip",
+    "launched"
+  ],
+  "skip": [
+    "in design",
+    "design",
+    "designing",
+    "in dev",
+    "dev",
+    "in development",
+    "development",
+    "not live",
+    "offline",
+    "paused",
+    "on hold",
+    "cancelled",
+    "canceled",
+    "archived"
+  ]
+}
