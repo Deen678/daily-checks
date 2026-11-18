@@ -70,3 +70,11 @@ Results:
 - Never change the owner's original file. Always write a new results file.
 - Never submit forms or log in. Only load pages.
 - Never call a site down from a single failed attempt.
+
+## How documents are delivered (the owner's rule)
+Give documents to the owner as a **Claude Doc** that opens in the side panel,
+where they can read, edit and comment, instead of a Word file. The main
+session creates the doc with the Docs tools and opens it. Tell the owner they
+can export it from the doc's name > Export (Word, PDF or Markdown, or a copy to
+Google Docs or Notion). Keep producing a Word file only when the owner asks
+for one, or when a file must be attached somewhere.
